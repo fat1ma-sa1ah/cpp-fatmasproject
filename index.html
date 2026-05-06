@@ -1,0 +1,38 @@
+<!DOCTYPE html>
+<html lang="ar" dir="rtl">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>لعبة السودوكو 4×4</title>
+    <link rel="stylesheet" href="style.css">
+</head>
+<body>
+    <div class="container">
+        <h1>لعبة السودوكو 4×4</h1>
+        
+        <div class="game-controls">
+            <button id="newGame">لعبة جديدة</button>
+            <button id="checkSolution">تحقق من الحل</button>
+            <button id="showSolution">إظهار الحل</button>
+        </div>
+        
+        <div class="sudoku-board" id="sudokuBoard">
+            <!-- سيتم إنشاء الخلايا بواسطة JavaScript -->
+        </div>
+        
+        <div class="message" id="message"></div>
+        
+        <div class="instructions">
+            <h3>كيفية اللعب:</h3>
+            <ul>
+                <li>املأ الخلايا الفارغة بأرقام من 1 إلى 4</li>
+                <li>كل صف يجب أن يحتوي على الأرقام 1-4 بدون تكرار</li>
+                <li>كل عمود يجب أن يحتوي على الأرقام 1-4 بدون تكرار</li>
+                <li>كل مربع 2×2 يجب أن يحتوي على الأرقام 1-4 بدون تكرار</li>
+            </ul>
+        </div>
+    </div>
+    
+    <script src="script.js"></script>
+</body>
+</html>
