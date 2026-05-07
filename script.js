@@ -1,294 +1,418 @@
-class Sudoku4x4 {
+class SudokuGame {
     constructor() {
         this.board = [];
         this.solution = [];
-        this.initialBoard = [];
+        this.selectedCell = null;
+        this.selectedNumber = null;
+        this.moves = 0;
+        this.timer = 0;
+        this.timerInterval = null;
+        this.fixedCells = new Set();
+        
         this.init();
     }
 
     init() {
+        this.createBoard();
         this.setupEventListeners();
-        this.createNewGame();
-    }
-
-    setupEventListeners() {
-        document.getElementById('newGame').addEventListener('click', () => this.createNewGame());
-        document.getElementById('checkSolution').addEventListener('click', () => this.checkSolution());
-        document.getElementById('showSolution').addEventListener('click', () => this.showSolution());
+        this.startNewGame();
+        this.startTimer();
     }
 
     createBoard() {
-        const boardElement = document.getElementById('sudokuBoard');
+        const boardElement = document.getElementById('sudoku-board');
         boardElement.innerHTML = '';
-
+        
         for (let i = 0; i < 16; i++) {
             const cell = document.createElement('div');
             cell.className = 'cell';
             cell.dataset.index = i;
-            
-            const input = document.createElement('input');
-            input.type = 'text';
-            input.maxLength = 1;
-            input.min = 1;
-            input.max = 4;
-            
-            input.addEventListener('input', (e) => this.handleInput(e, i));
-            input.addEventListener('focus', (e) => this.handleFocus(e, i));
-            input.addEventListener('keydown', (e) => this.handleKeydown(e, i));
-            
-            cell.appendChild(input);
+            cell.dataset.row = Math.floor(i / 4);
+            cell.dataset.col = i % 4;
             boardElement.appendChild(cell);
         }
     }
 
-    handleInput(e, index) {
-        const value = e.target.value;
-        
-        if (value && (!/^[1-4]$/.test(value))) {
-            e.target.value = '';
-            return;
-        }
-        
-        this.board[index] = value ? parseInt(value) : 0;
-        this.clearHighlights();
-        this.checkWin();
-    }
-
-    handleFocus(e, index) {
-        this.clearHighlights();
-        e.target.parentElement.classList.add('selected');
-        this.highlightRelatedCells(index);
-    }
-
-    handleKeydown(e, index) {
-        const key = e.key;
-        let newIndex = index;
-
-        switch(key) {
-            case 'ArrowUp':
-                newIndex = index - 4;
-                break;
-            case 'ArrowDown':
-                newIndex = index + 4;
-                break;
-            case 'ArrowLeft':
-                newIndex = index - 1;
-                break;
-            case 'ArrowRight':
-                newIndex = index + 1;
-                break;
-            default:
-                return;
-        }
-
-        if (newIndex >= 0 && newIndex < 16) {
-            e.preventDefault();
-            const cells = document.querySelectorAll('.cell input');
-            cells[newIndex].focus();
-        }
-    }
-
-    highlightRelatedCells(index) {
-        const row = Math.floor(index / 4);
-        const col = index % 4;
-        const boxRow = Math.floor(row / 2);
-        const boxCol = Math.floor(col / 2);
-
-        for (let i = 0; i < 16; i++) {
-            const currentRow = Math.floor(i / 4);
-            const currentCol = i % 4;
-            const currentBoxRow = Math.floor(currentRow / 2);
-            const currentBoxCol = Math.floor(currentCol / 2);
-
-            if (currentRow === row || currentCol === col || 
-                (currentBoxRow === boxRow && currentBoxCol === boxCol)) {
-                document.querySelector(`[data-index="${i}"]`).classList.add('selected');
+    setupEventListeners() {
+        // Cell clicks
+        document.getElementById('sudoku-board').addEventListener('click', (e) => {
+            if (e.target.classList.contains('cell') && !e.target.classList.contains('fixed')) {
+                this.selectCell(e.target);
             }
-        }
-    }
+        });
 
-    clearHighlights() {
-        document.querySelectorAll('.cell').forEach(cell => {
-            cell.classList.remove('selected', 'error', 'correct');
+        // Number buttons
+        document.querySelectorAll('.number-btn').forEach(btn => {
+            btn.addEventListener('click', () => {
+                const number = parseInt(btn.dataset.number);
+                this.selectNumber(number);
+                this.highlightNumberButton(btn);
+            });
+        });
+
+        // Control buttons
+        document.getElementById('new-game').addEventListener('click', () => this.startNewGame());
+        document.getElementById('hint').addEventListener('click', () => this.giveHint());
+        document.getElementById('check').addEventListener('click', () => this.checkSolution());
+        document.getElementById('reset').addEventListener('click', () => this.resetGame());
+
+        // Keyboard support
+        document.addEventListener('keydown', (e) => {
+            if (e.key >= '1' && e.key <= '4') {
+                this.selectNumber(parseInt(e.key));
+                const btn = document.querySelector(`.number-btn[data-number="${e.key}"]`);
+                this.highlightNumberButton(btn);
+            } else if (e.key === '0' || e.key === 'Delete' || e.key === 'Backspace') {
+                this.selectNumber(0);
+                const btn = document.querySelector('.clear-btn');
+                this.highlightNumberButton(btn);
+            }
         });
     }
 
+    startNewGame() {
+        this.moves = 0;
+        this.timer = 0;
+        this.updateMoves();
+        this.updateTimer();
+        this.fixedCells.clear();
+        
+        // Generate a valid Sudoku solution
+        this.solution = this.generateSolution();
+        
+        // Create puzzle by removing numbers
+        this.board = this.createPuzzle(this.solution);
+        
+        // Update the display
+        this.updateBoard();
+        this.showMessage('لعبة جديدة! املأ المربعات الفارغة', 'info');
+    }
+
     generateSolution() {
-        const solution = new Array(16).fill(0);
+        // Start with a valid base solution
+        const base = [
+            [1, 2, 3, 4],
+            [3, 4, 1, 2],
+            [2, 1, 4, 3],
+            [4, 3, 2, 1]
+        ];
         
-        const numbers = [1, 2, 3, 4];
-        this.shuffleArray(numbers);
-        
-        for (let i = 0; i < 4; i++) {
-            solution[i] = numbers[i];
-        }
-        
-        this.solveSudoku(solution, 0);
+        // Shuffle rows and columns within blocks
+        const solution = this.shuffleSolution(base);
         return solution;
     }
 
-    solveSudoku(board, index) {
-        if (index === 16) return true;
+    shuffleSolution(base) {
+        const solution = base.map(row => [...row]);
         
-        if (board[index] !== 0) {
-            return this.solveSudoku(board, index + 1);
+        // Shuffle rows within each 2-row block
+        for (let block = 0; block < 2; block++) {
+            if (Math.random() > 0.5) {
+                const row1 = block * 2;
+                const row2 = block * 2 + 1;
+                [solution[row1], solution[row2]] = [solution[row2], solution[row1]];
+            }
         }
         
-        const numbers = [1, 2, 3, 4];
-        this.shuffleArray(numbers);
-        
-        for (const num of numbers) {
-            if (this.isValidMove(board, index, num)) {
-                board[index] = num;
-                
-                if (this.solveSudoku(board, index + 1)) {
-                    return true;
+        // Shuffle columns within each 2-column block
+        for (let block = 0; block < 2; block++) {
+            if (Math.random() > 0.5) {
+                const col1 = block * 2;
+                const col2 = block * 2 + 1;
+                for (let row = 0; row < 4; row++) {
+                    [solution[row][col1], solution[row][col2]] = [solution[row][col2], solution[row][col1]];
                 }
-                
-                board[index] = 0;
             }
         }
         
-        return false;
-    }
-
-    isValidMove(board, index, num) {
-        const row = Math.floor(index / 4);
-        const col = index % 4;
-        
-        for (let i = 0; i < 4; i++) {
-            if (board[row * 4 + i] === num) return false;
-            if (board[i * 4 + col] === num) return false;
+        // Swap 2-row blocks
+        if (Math.random() > 0.5) {
+            [solution[0], solution[0]] = [solution[0], solution[0]];
+            [solution[1], solution[2]] = [solution[2], solution[1]];
         }
         
-        const boxRow = Math.floor(row / 2) * 2;
-        const boxCol = Math.floor(col / 2) * 2;
-        
-        for (let i = boxRow; i < boxRow + 2; i++) {
-            for (let j = boxCol; j < boxCol + 2; j++) {
-                if (board[i * 4 + j] === num) return false;
+        // Swap 2-column blocks
+        if (Math.random() > 0.5) {
+            for (let row = 0; row < 4; row++) {
+                [solution[row][0], solution[row][2]] = [solution[row][2], solution[row][0]];
+                [solution[row][1], solution[row][3]] = [solution[row][3], solution[row][1]];
             }
         }
         
-        return true;
-    }
-
-    shuffleArray(array) {
-        for (let i = array.length - 1; i > 0; i--) {
-            const j = Math.floor(Math.random() * (i + 1));
-            [array[i], array[j]] = [array[j], array[i]];
-        }
+        return solution;
     }
 
     createPuzzle(solution) {
-        const puzzle = [...solution];
-        const cellsToRemove = 8 + Math.floor(Math.random() * 3);
+        const puzzle = solution.map(row => [...row]);
+        const cellsToRemove = 6 + Math.floor(Math.random() * 4); // Remove 6-9 numbers
         
-        const indices = [];
+        const positions = [];
         for (let i = 0; i < 16; i++) {
-            indices.push(i);
+            positions.push(i);
         }
-        this.shuffleArray(indices);
         
+        // Shuffle positions
+        for (let i = positions.length - 1; i > 0; i--) {
+            const j = Math.floor(Math.random() * (i + 1));
+            [positions[i], positions[j]] = [positions[j], positions[i]];
+        }
+        
+        // Remove numbers from random positions
         for (let i = 0; i < cellsToRemove; i++) {
-            puzzle[indices[i]] = 0;
+            const pos = positions[i];
+            const row = Math.floor(pos / 4);
+            const col = pos % 4;
+            puzzle[row][col] = 0;
+        }
+        
+        // Mark fixed cells
+        for (let row = 0; row < 4; row++) {
+            for (let col = 0; col < 4; col++) {
+                if (puzzle[row][col] !== 0) {
+                    this.fixedCells.add(row * 4 + col);
+                }
+            }
         }
         
         return puzzle;
     }
 
-    createNewGame() {
-        this.createBoard();
-        this.solution = this.generateSolution();
-        this.initialBoard = this.createPuzzle(this.solution);
-        this.board = [...this.initialBoard];
-        
-        this.renderBoard();
-        this.showMessage('لعبة جديدة! املأ الخلايا الفارغة.', 'info');
-    }
-
-    renderBoard() {
-        const cells = document.querySelectorAll('.cell input');
-        
-        cells.forEach((input, index) => {
-            const value = this.board[index];
-            const cell = input.parentElement;
+    updateBoard() {
+        const cells = document.querySelectorAll('.cell');
+        cells.forEach((cell, index) => {
+            const row = Math.floor(index / 4);
+            const col = index % 4;
+            const value = this.board[row][col];
             
-            if (value !== 0) {
-                input.value = value;
-                input.readOnly = true;
+            cell.textContent = value || '';
+            cell.classList.remove('fixed', 'error', 'correct', 'hint');
+            
+            if (this.fixedCells.has(index)) {
                 cell.classList.add('fixed');
-            } else {
-                input.value = '';
-                input.readOnly = false;
-                cell.classList.remove('fixed');
             }
         });
+    }
+
+    selectCell(cell) {
+        // Remove previous selection
+        document.querySelectorAll('.cell').forEach(c => c.classList.remove('selected'));
+        
+        // Select new cell
+        cell.classList.add('selected');
+        this.selectedCell = cell;
+        
+        // If we have a selected number, place it
+        if (this.selectedNumber !== null) {
+            this.placeNumber();
+        }
+    }
+
+    selectNumber(number) {
+        this.selectedNumber = number;
+        
+        // If we have a selected cell, place the number
+        if (this.selectedCell) {
+            this.placeNumber();
+        }
+    }
+
+    placeNumber() {
+        if (!this.selectedCell || this.selectedCell.classList.contains('fixed')) {
+            return;
+        }
+        
+        const index = parseInt(this.selectedCell.dataset.index);
+        const row = Math.floor(index / 4);
+        const col = index % 4;
+        
+        // Clear previous error/correct states
+        this.selectedCell.classList.remove('error', 'correct');
+        
+        if (this.selectedNumber === 0) {
+            // Clear the cell
+            this.board[row][col] = 0;
+            this.selectedCell.textContent = '';
+        } else {
+            // Place the number
+            this.board[row][col] = this.selectedNumber;
+            this.selectedCell.textContent = this.selectedNumber;
+            
+            // Check if the placement is correct
+            if (this.selectedNumber === this.solution[row][col]) {
+                this.selectedCell.classList.add('correct');
+                setTimeout(() => {
+                    this.selectedCell.classList.remove('correct');
+                }, 1000);
+            } else {
+                this.selectedCell.classList.add('error');
+                setTimeout(() => {
+                    this.selectedCell.classList.remove('error');
+                }, 1000);
+            }
+        }
+        
+        this.moves++;
+        this.updateMoves();
+        
+        // Check if game is complete
+        if (this.isGameComplete()) {
+            this.gameWon();
+        }
+    }
+
+    highlightNumberButton(btn) {
+        document.querySelectorAll('.number-btn').forEach(b => b.classList.remove('active'));
+        if (btn) {
+            btn.classList.add('active');
+        }
+    }
+
+    giveHint() {
+        const emptyCells = [];
+        for (let row = 0; row < 4; row++) {
+            for (let col = 0; col < 4; col++) {
+                if (this.board[row][col] === 0) {
+                    emptyCells.push({ row, col });
+                }
+            }
+        }
+        
+        if (emptyCells.length === 0) {
+            this.showMessage('لا توجد مربعات فارغة!', 'info');
+            return;
+        }
+        
+        const randomCell = emptyCells[Math.floor(Math.random() * emptyCells.length)];
+        const { row, col } = randomCell;
+        const index = row * 4 + col;
+        const cell = document.querySelector(`.cell[data-index="${index}"]`);
+        
+        this.board[row][col] = this.solution[row][col];
+        cell.textContent = this.solution[row][col];
+        cell.classList.add('hint');
+        
+        setTimeout(() => {
+            cell.classList.remove('hint');
+        }, 2000);
+        
+        this.moves++;
+        this.updateMoves();
+        
+        this.showMessage('تم إعطاء مساعدة!', 'success');
+        
+        if (this.isGameComplete()) {
+            this.gameWon();
+        }
     }
 
     checkSolution() {
         let hasErrors = false;
         const cells = document.querySelectorAll('.cell');
         
-        cells.forEach((cell, index) => {
-            if (this.board[index] !== 0) {
-                if (this.board[index] === this.solution[index]) {
-                    cell.classList.add('correct');
-                } else {
+        for (let row = 0; row < 4; row++) {
+            for (let col = 0; col < 4; col++) {
+                const index = row * 4 + col;
+                const cell = cells[index];
+                
+                if (this.board[row][col] !== 0 && this.board[row][col] !== this.solution[row][col]) {
                     cell.classList.add('error');
                     hasErrors = true;
                 }
             }
-        });
-        
-        if (hasErrors) {
-            this.showMessage('هناك أخطاء! الخلايا الحمراء تحتوي على إجابات خاطئة.', 'error');
-        } else {
-            this.showMessage('جميع الإجابات صحيحة حتى الآن! استمر في العمل.', 'success');
         }
         
-        setTimeout(() => this.clearHighlights(), 3000);
+        if (hasErrors) {
+            this.showMessage('هناك أخطاء في الحل! المربعات الحمراء غير صحيحة', 'error');
+        } else if (this.isGameComplete()) {
+            this.gameWon();
+        } else {
+            this.showMessage('الحل صحيح حتى الآن! استمر في اللعب', 'success');
+        }
     }
 
-    showSolution() {
-        this.board = [...this.solution];
-        this.renderBoard();
-        this.showMessage('تم إظهار الحل الكامل!', 'info');
-    }
-
-    checkWin() {
-        for (let i = 0; i < 16; i++) {
-            if (this.board[i] === 0 || this.board[i] !== this.solution[i]) {
-                return false;
+    resetGame() {
+        // Reset to the initial puzzle state
+        for (let row = 0; row < 4; row++) {
+            for (let col = 0; col < 4; col++) {
+                if (!this.fixedCells.has(row * 4 + col)) {
+                    this.board[row][col] = 0;
+                }
             }
         }
         
-        this.showMessage('🎉 مبروك! لقد حلقت اللعبة بنجاح!', 'success');
-        this.disableAllInputs();
+        this.moves = 0;
+        this.updateMoves();
+        this.updateBoard();
+        this.showMessage('تم إعادة تعيين اللعبة!', 'info');
+    }
+
+    isGameComplete() {
+        for (let row = 0; row < 4; row++) {
+            for (let col = 0; col < 4; col++) {
+                if (this.board[row][col] !== this.solution[row][col]) {
+                    return false;
+                }
+            }
+        }
         return true;
     }
 
-    disableAllInputs() {
-        const inputs = document.querySelectorAll('.cell input');
-        inputs.forEach(input => {
-            input.readOnly = true;
+    gameWon() {
+        this.stopTimer();
+        this.showMessage(`🎉 مبروك! لقد فزت في ${this.moves} حركة و ${this.formatTime(this.timer)}!`, 'success');
+        
+        // Add celebration animation
+        document.querySelectorAll('.cell').forEach((cell, index) => {
+            setTimeout(() => {
+                cell.classList.add('correct');
+                setTimeout(() => {
+                    cell.classList.remove('correct');
+                }, 500);
+            }, index * 50);
         });
+    }
+
+    startTimer() {
+        this.stopTimer();
+        this.timerInterval = setInterval(() => {
+            this.timer++;
+            this.updateTimer();
+        }, 1000);
+    }
+
+    stopTimer() {
+        if (this.timerInterval) {
+            clearInterval(this.timerInterval);
+            this.timerInterval = null;
+        }
+    }
+
+    updateTimer() {
+        document.getElementById('timer').textContent = this.formatTime(this.timer);
+    }
+
+    formatTime(seconds) {
+        const mins = Math.floor(seconds / 60);
+        const secs = seconds % 60;
+        return `${mins.toString().padStart(2, '0')}:${secs.toString().padStart(2, '0')}`;
+    }
+
+    updateMoves() {
+        document.getElementById('moves').textContent = this.moves;
     }
 
     showMessage(text, type) {
         const messageElement = document.getElementById('message');
         messageElement.textContent = text;
-        messageElement.className = `message ${type}`;
+        messageElement.className = `message ${type} show`;
         
-        if (type !== 'success') {
-            setTimeout(() => {
-                messageElement.textContent = '';
-                messageElement.className = 'message';
-            }, 3000);
-        }
+        setTimeout(() => {
+            messageElement.classList.remove('show');
+        }, 3000);
     }
 }
 
+// Initialize the game when the page loads
 document.addEventListener('DOMContentLoaded', () => {
-    new Sudoku4x4();
+    new SudokuGame();
 });
